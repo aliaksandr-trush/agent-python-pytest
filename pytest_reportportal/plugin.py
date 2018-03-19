@@ -27,11 +27,19 @@ def pytest_sessionstart(session):
         ignored_tags=session.config.getini('rp_ignore_tags'),
     )
 
-    PyTestService.start_launch(
-        session.config.option.rp_launch,
-        tags=session.config.getini('rp_launch_tags'),
-        description=session.config.option.rp_launch_description,
-    )
+    if hasattr(session.config, 'workerinput'):
+        # if xdist slave then attach to existing launch
+        PyTestService.RP.rp_client.launch_id = session.config.option.launch_id
+    else:
+        PyTestService.start_launch(
+            session.config.option.rp_launch,
+            tags=session.config.getini('rp_launch_tags'),
+            description=session.config.option.rp_launch_description,
+        )
+
+        # we need to be sure that launch created to receive launch_id and save it
+        PyTestService.RP.queue.join()
+        session.config.option.launch_id = PyTestService.RP.rp_client.launch_id
 
 
 def pytest_sessionfinish(session):
@@ -40,7 +48,10 @@ def pytest_sessionfinish(session):
 
     # FixMe: currently method of RP api takes the string parameter
     # so it is hardcoded
-    PyTestService.finish_launch(status='RP_Launch')
+
+    # finish launch only if it is not a slave
+    if not hasattr(session.config, 'workerinput'):
+        PyTestService.finish_launch(status='RP_Launch')
 
 
 def pytest_configure(config):
@@ -48,10 +59,6 @@ def pytest_configure(config):
         config.option.rp_launch = config.getini('rp_launch')
     if not config.option.rp_launch_description:
         config.option.rp_launch_description = config.getini('rp_launch_description')
-
-    if config.pluginmanager.hasplugin('xdist'):
-        raise Exception(
-            "pytest report portal is not compatible with 'xdist' plugin.")
 
     # set Pytest_Reporter and configure it
 
